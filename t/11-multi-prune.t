@@ -15,13 +15,12 @@ my @tests= (
 			{ interval => { days  => 7 }, duration => { years  =>  1 } },
 		],
 		dates  => [
-			every_x('2018-01-01 00:00', '2017-01-01 00:01', hours => 6),
+			date_series('2018-01-01 00:00', '2017-01-01 00:01', hours => 6),
 		],
 		keep   => [
-			every_x('2018-01-01 00:00', '2017-12-18 00:01', hours => 6),
-			every_x('2017-12-17 12:00', '2017-11-01 00:01', days => 1),
-			every_x('2017-10-26 12:00', '2017-01-01 00:01', days => 7),
-			'2017-01-01T06:00:00' # half interval, still finds nearest
+			date_series('2018-01-01 00:00', '2017-12-18 00:01', hours => 6),
+			date_series('2017-12-18 00:00', '2017-11-01 00:01', days => 1),
+			date_series('2017-10-30 00:00', '2017-01-01 00:01', days => 7),
 		],
 		reach  => .5,
 	},
@@ -35,11 +34,12 @@ for my $t (@tests) {
 		] );
 		my @list= @{ $t->{dates} };
 		$rp->prune(\@list);
-		is_deeply( \@list, $t->{keep}, 'kept' );
+		is_deeply( \@list, $t->{keep}, 'kept' )
+			or diag explain $t->{keep};
 	};
 }
 
-sub every_x {
+sub date_series {
 	my ($from, $until, @interval)= @_;
 	my @ret;
 	my $d0= DateTime::Format::Flexible->parse_datetime($from);

@@ -10,16 +10,16 @@ my @tests= (
 	{
 		name   => 'daily from daily list',
 		retain => [ { interval => { days => 1 }, duration => { days => 10 } } ],
-		dates  => [ map { $epoch_2018 - ($_*24+12)*60*60 } 1..5 ],
-		keep   => [ map { $epoch_2018 - ($_*24+12)*60*60 } 1..5 ],
+		dates  => [ map { $epoch_2018 - $_*24*60*60 } 1..5 ],
+		keep   => [ map { $epoch_2018 - $_*24*60*60 } 1..5 ],
 		reach  => .5,
 	},
 	{
 		name   => 'daily from hourly list',
 		retain => [ { interval => { days => 1 }, duration => { days => 10 } } ],
 		dates  => [ map { $epoch_2018 - $_*60*60 } 0..47 ],
-		keep   => [ map { $epoch_2018 - ($_*24+12)*60*60 } 0..1 ],
-		reach  => 0,
+		keep   => [ $epoch_2018, $epoch_2018 - 24*60*60, $epoch_2018 - 47*60*60 ],
+		reach  => .5,
 	}
 );
 for my $t (@tests) {
