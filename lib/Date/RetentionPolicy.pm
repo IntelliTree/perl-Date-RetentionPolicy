@@ -144,25 +144,149 @@ operates on.
 
 sub prune {
 	my ($self, $list)= @_;
-	my (@sorted, @retain, @prune);
-	# Each list element needs to be a date object, (but preserve the original)
-	# and the list needs to be sorted in cronological order.
-	@sorted= sort { $a->[0] <=> $b->[0] }
-		# tuple of [ Epoch, ListIndex, KeepBoolean ].
-		# A hash would be more readable but there could be a lot of these.
-		map [ $self->_coerce_to_epoch($list->[$_]), $_, 0 ],
-			0..$#$list;
-	# Set the boolean to true for each element that a rule wants to keep
-	$self->_mark_for_retention($_->{interval}, $_->{duration}, $_->{reach_factor} // $self->reach_factor, \@sorted)
-		for @{ $self->retain };
-	# Then divide the elements into two lists.  Make a set of which indexes
+	my $processed= $self->_sort_and_mark_retention($list);
+	# Divide the elements into two lists.  Make a set of which indexes
 	# we're keeping, then iterate the original list to preserve the caller's
 	# list order.
-	my %keep= map +($_->[1] => 1), grep $_->[2], @sorted;
+	my (@retain, @prune);
+	my %keep= map +($_->[1] => 1), grep $_->[2], @$processed;
 	push @{ $keep{$_}? \@retain : \@prune }, $list->[$_]
 		for 0..$#$list;
 	@$list= @retain;
 	return \@prune;
+}
+
+sub _sort_and_mark_retention {
+	my ($self, $list, $trace)= @_;
+	# Each list element needs to be a date object, (but preserve the original)
+	# and the list needs to be sorted in cronological order.
+	my @sorted= sort { $a->[0] <=> $b->[0] }
+		# tuple of [ Epoch, ListIndex, KeepBoolean ].
+		# A hash would be more readable but there could be a lot of these.
+		map [ $self->_coerce_to_epoch($list->[$_]), $_, 0 ],
+			0..$#$list;
+	# Never prune things newer than the reference date
+	my $ref_date= $self->reference_date_or_default;
+	for (my $i= $#sorted; $i >= 0 && $sorted[$i][0] > $ref_date->epoch; --$i) {
+		$sorted[$i][2]= 1;
+	}
+	# Set the boolean to true for each element that a rule wants to keep
+	$self->_mark_for_retention($ref_date, $_, \@sorted, $trace)
+		for @{ $self->retain };
+	return \@sorted;
+}
+
+sub _mark_for_retention {
+	my ($self, $reference_date, $rule, $list, $trace)= @_;
+	my ($interval, $duration, $reach_factor)= @{$rule}{'interval','duration','reach_factor'};
+	$reach_factor=   $self->reach_factor unless defined $reach_factor;
+	my $next_date=   $reference_date->clone;
+	my $epoch=       $next_date->epoch;
+	my $search_idx=  $#$list; # high value, iterates downward
+	my $final_epoch= $next_date->clone->subtract(%$duration)->epoch;
+	my $next_epoch=  $next_date->subtract(%$interval)->epoch;
+	my $radius=      ($epoch - $next_epoch) * $reach_factor;
+	my $drift=       0; # only used for auto_sync
+	my $rule_key;
+	
+	# Iterating backward accross date intervals and also input points, which is awkward.
+	# The epoch variables track the current date interval, and the _idx
+	# variables track our position in the list.
+	while ($epoch > $final_epoch && $search_idx >= 0) {
+		my $best;
+		for (my $i= $search_idx; $i >= 0 and $list->[$i][0] > $epoch+$drift-$radius; --$i) {
+			if ($list->[$i][0] <= $epoch+$drift+$radius
+				and (!defined $best or abs($list->[$i][0] - ($epoch+$drift)) < abs($list->[$best][0] - ($epoch+$drift)))
+			) {
+				$best= $i;
+			}
+			# update the start_idx for next interval iteration
+			$search_idx= $i-1 if $list->[$i][0] > $next_epoch+$drift+$radius;
+		}
+		if (defined $best) {
+			$list->[$best][2]= 1; # mark as a keeper
+			# If option enabled, drift toward the time we found, so that gap between next
+			# is closer to $interval
+			$drift += ($list->[$best][0] - ($epoch+$drift))/2
+				if $self->auto_sync;
+		}
+		if ($trace) {
+			$rule_key= join ',', map "$_=$interval->{$_}", keys %$interval
+				unless defined $rule_key;
+			if (!$trace->{$rule_key}) {
+				$trace->{$rule_key}{idx}= scalar keys %$trace;
+				$trace->{$rule_key}{radius}= $radius;
+				$trace->{$rule_key}{name}= $rule_key;
+			}
+			push @{$trace->{$rule_key}{interval}}, { epoch => $epoch, best => $best, drift => $drift };
+		}
+		$epoch= $next_epoch;
+		$next_epoch= $next_date->subtract(%$interval)->epoch;
+		
+		# if auto_sync enabled, cause drift to decay back toward 0
+		$drift= int($drift * 7/8)
+			if $drift;
+	}
+}
+
+sub visualize {
+	my ($self, $list)= @_;
+	my $trace= {};
+	my $processed= $self->_sort_and_mark_retention($list, $trace);
+	$processed->[$_][1]= $_ for 0..$#$processed; # change indexes to index within processed list
+	my @claimed;
+	my @things= @$processed;
+	my @columns;
+	my %rule_to_col;
+	# Convert each trace to a similar arrayref structure as the processed items, for sorting
+	for my $rule_trace (sort { $a->{idx} <=> $b->{idx} } values %$trace) {
+		push @columns, { name => $rule_trace->{name}, width => 20 };
+		$rule_to_col{$rule_trace->{name}}= $#columns;
+		for (@{ $rule_trace->{interval} }) {
+			push @{$claimed[$_->{best}]}, $rule_trace->{name} if defined $_->{best};
+			push @things,
+				[ $_->{epoch} + $_->{drift} + $rule_trace->{radius}, 'ival-newest', $rule_trace->{name} ],
+				[ $_->{epoch} + $_->{drift},                         'ival',        $rule_trace->{name} ],
+				[ $_->{epoch} + $_->{drift} - $rule_trace->{radius}, 'ival-oldest', $rule_trace->{name} ];
+		}
+	}
+	push @columns, { name => 'timestamp', width => 20 };
+	@things= sort { $a->[0] <=> $b->[0] } @things;
+	
+	# Walk from oldest to newest, displaying timestamps alongside the epock interval points
+	my $cur_time= 0;
+	my @in_interval= ( 0 ) x @columns;
+	my @row= map $_->{name}, @columns;
+	my $format= join(' ', map '%-'.$_->{width}.'s', @columns)."\n";
+	my $out= '';
+	my $emit= sub {
+		# if in_interval, display a vertical bar as a graphic
+		for (0..$#in_interval) {
+			$row[$_] ||= '|' if $in_interval[$_];
+		}
+		$out .= sprintf $format, @row;
+		@row= ('') x @columns;
+	};
+	for (@things) {
+		$emit->() if $cur_time != $_->[0];
+		$cur_time= $_->[0];
+		if ($_->[1] eq 'ival') {
+			$row[ $rule_to_col{ $_->[2] } ]= $self->_coerce_date($_->[0]);
+		} elsif ($_->[1] eq 'ival-newest') {
+			$row[ $rule_to_col{ $_->[2] } ]= '---';
+			--$in_interval[ $rule_to_col{ $_->[2] } ];
+		} elsif ($_->[1] eq 'ival-oldest') {
+			$row[ $rule_to_col{ $_->[2] } ]= '---';
+			++$in_interval[ $rule_to_col{ $_->[2] } ];
+		} else {
+			$row[-1]= $self->_coerce_date($_->[0]).($_->[2]? ' +':' x');
+			if ($claimed[$_->[1]]) {
+				$row[-1] .= '  '.join ', ', @{ $claimed[$_->[1]] };
+			}
+		}
+	}
+	$emit->();
+	return $out;
 }
 
 sub _coerce_date {
@@ -178,51 +302,6 @@ sub _coerce_to_epoch {
 	my ($self, $thing)= @_;
 	return $thing if !ref $thing && looks_like_number($thing);
 	return $self->_coerce_date($thing)->epoch;
-}
-
-sub _mark_for_retention {
-	my ($self, $interval, $duration, $reach_factor, $list)= @_;
-	my $next_date=   $self->reference_date_or_default;
-	my $epoch=       $next_date->epoch;
-	my $search_idx=  $#$list; # high value, iterates downward
-	my $final_epoch= $next_date->clone->subtract(%$duration)->epoch;
-	my $next_epoch=  $next_date->subtract(%$interval)->epoch;
-	my $radius=      ($epoch - $next_epoch) / 2 * $reach_factor;
-	my $drift=       0; # only used for auto_sync
-	
-	# Iterating backward accross date intervals and also input points, which is awkward.
-	# The epoch variables track the current date interval, and the _idx
-	# variables track our position in the list.
-	while ($epoch > $final_epoch && $search_idx >= 0) {
-		my $best;
-		#printf STDERR "start_idx=%d goal=%s date range (%s..%s]\n",
-		#	$start_idx, $self->_coerce_date($goal_epoch), $self->_coerce_date($limit_epoch-$radius), $self->_coerce_date($start_epoch+$radius);
-		for (my $i= $search_idx; $i >= 0 and $list->[$i][0] > $epoch+$drift-$radius; --$i) {
-			#printf STDERR "  i=%d list[i]=%s (%d)  best=%s\n",
-			#	$i, $self->_coerce_date($list->[$i][0]), $list->[$i][0], ($best? $self->_coerce_date($best->[0]) : '-');
-			if ($list->[$i][0] <= $epoch+$drift+$radius
-				and (!$best or abs($list->[$i][0] - ($epoch+$drift)) < abs($best->[0] - ($epoch+$drift)))
-			) {
-				#print STDERR "   (best so far)\n";
-				$best= $list->[$i];
-			}
-			# update the start_idx for next interval iteration
-			$search_idx= $i-1 if $list->[$i][0] > $next_epoch+$drift+$radius;
-		}
-		if ($best) {
-			$best->[2]= 1; # mark as a keeper
-			# If option enabled, drift toward the time we found, so that gap between next
-			# is closer to $interval
-			$drift += ($best->[0] - ($epoch+$drift))/2
-				if $self->auto_sync;
-		}
-		$epoch= $next_epoch;
-		$next_epoch= $next_date->subtract(%$interval)->epoch;
-		
-		# if auto_sync enabled, cause drift to decay back toward 0
-		$drift= int($drift * 7/8)
-			if $drift;
-	}
 }
 
 1;
