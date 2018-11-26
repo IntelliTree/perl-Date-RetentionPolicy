@@ -5,7 +5,7 @@ use Test::More;
 
 use_ok( 'Date::RetentionPolicy' ) or BAIL_OUT;
 my $epoch_2018= 1514764800;
-my $srand_value= $ENV{TEST_SRAND} // time;
+my $srand_value= defined $ENV{TEST_SRAND}? $ENV{TEST_SRAND} : time;
 srand($srand_value);
 
 my @dates= epoch_series_with_jitter('2018-01-01', '2017-10-01', hours => 6);
