@@ -10,9 +10,9 @@ my @tests= (
 	{
 		name   => '4x daily for 2w, 1x daily for 2mo, 1x weekly for 1y',
 		retain => [
-			{ interval => { hours => 6 }, duration => { days   => 14 } },
-			{ interval => { days  => 1 }, duration => { months =>  2 } },
-			{ interval => { days  => 7 }, duration => { years  =>  1 } },
+			{ interval => { hours => 6 }, history => { days   => 14 } },
+			{ interval => { days  => 1 }, history => { months =>  2 } },
+			{ interval => { days  => 7 }, history => { years  =>  1 } },
 		],
 		dates  => [
 			date_series('2018-01-01 00:00', '2017-01-01 00:01', hours => 6),

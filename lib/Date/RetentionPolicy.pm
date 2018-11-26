@@ -9,9 +9,9 @@ use DateTime::Format::Flexible;
 
   my $rp= Date::RetentionPolicy->new(
     retain => [
-      { interval => { hours => 6 }, duration => { months => 3 } },
-      { interval => { days  => 1 }, duration => { months => 6 } },
-      { interval => { days  => 7 }, duration => { months => 9 } },
+      { interval => { hours => 6 }, history => { months => 3 } },
+      { interval => { days  => 1 }, history => { months => 6 } },
+      { interval => { days  => 7 }, history => { months => 9 } },
     ]
   );
   
@@ -53,15 +53,15 @@ to allow it to work with other Date classes.
 =head2 retain
 
 An arrayref of specifications for what to preserve.  Each element should be a
-hashref containing C<duration> and C<interval>.  C<duration> specifies how far
+hashref containing C<history> and C<interval>.  C<history> specifies how far
 backward from L</reference_date> to apply the intervals, and C<interval>
 specifies the time difference between the backups that need preserved.
 
 As an example, consider
 
   retain => [
-    { interval => { days => 1 }, duration => { days => 20 } },
-    { interval => { hours => 1 }, duration => { hours => 48 } },
+    { interval => { days => 1 }, history => { days => 20 } },
+    { interval => { hours => 1 }, history => { hours => 48 } },
   ]
 
 This will attempt to preserve timestamps near the marks of L</reference_date>,
@@ -78,7 +78,7 @@ distance, and you can set C<reach_factor> accordingly.  You can also supply it
 as another hash key for a retain rule for per-rule customization.
 
   retain => [
-    { interval => { days => 1 }, duration => { days => 20 }, reach_factor => .75 }
+    { interval => { days => 1 }, history => { days => 20 }, reach_factor => .75 }
   ]
 
 =head2 time_zone
@@ -178,9 +178,9 @@ sub _sort_and_mark_retention {
 
 sub _mark_for_retention {
 	my ($self, $reference_date, $rule, $list, $trace)= @_;
-	my ($interval, $duration, $reach_factor)= @{$rule}{'interval','duration','reach_factor'};
+	my ($interval, $history, $reach_factor)= @{$rule}{'interval','history','reach_factor'};
 	$reach_factor=   $self->reach_factor unless defined $reach_factor;
-	my $next_date=   $reference_date->clone->subtract(%$duration)->add(%$interval);
+	my $next_date=   $reference_date->clone->subtract(%$history)->add(%$interval);
 	my $epoch=       $next_date->epoch;
 	my $search_idx=  0;
 	my $next_epoch=  $next_date->add(%$interval)->epoch;

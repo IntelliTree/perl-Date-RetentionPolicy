@@ -14,9 +14,9 @@ my @tests= (
 	{
 		name   => '4x daily for 2w, 1x daily for 2mo, 1x weekly for 1y',
 		retain => [
-			{ interval => { hours => 6 }, duration => { days   =>  7 } },
-			{ interval => { days  => 1 }, duration => { months =>  1 } },
-			{ interval => { days  => 7 }, duration => { months =>  3 } },
+			{ interval => { hours => 6 }, history => { days   =>  7 } },
+			{ interval => { days  => 1 }, history => { months =>  1 } },
+			{ interval => { days  => 7 }, history => { months =>  3 } },
 		],
 		reach  => .75,
 	},
