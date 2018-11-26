@@ -15,10 +15,11 @@ and see the full documentation locally with
 
 To build and install [this source code][2], use the [Dist::Zilla][3] tool:
 
-    dzil --authordeps | cpanm
+    cpanm Dist::Zilla
+    dzil authordeps --missing | cpanm
     dzil build
     cpanm ./Date-RetentionPolicy-$VERSION
 
-[1] https://metacpan.org/pod/Date::RetentionPolicy
-[2] https://github.com/IntelliTree/perl-Date-RetentionPolicy
-[3] https://metacpan.org/pod/Dist::Zilla
+[1]: https://metacpan.org/pod/Date::RetentionPolicy
+[2]: https://github.com/IntelliTree/perl-Date-RetentionPolicy
+[3]: https://metacpan.org/pod/Dist::Zilla
