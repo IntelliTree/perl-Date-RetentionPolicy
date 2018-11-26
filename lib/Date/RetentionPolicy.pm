@@ -180,34 +180,32 @@ sub _mark_for_retention {
 	my ($self, $reference_date, $rule, $list, $trace)= @_;
 	my ($interval, $duration, $reach_factor)= @{$rule}{'interval','duration','reach_factor'};
 	$reach_factor=   $self->reach_factor unless defined $reach_factor;
-	my $next_date=   $reference_date->clone;
+	my $next_date=   $reference_date->clone->subtract(%$duration)->add(%$interval);
 	my $epoch=       $next_date->epoch;
-	my $search_idx=  $#$list; # high value, iterates downward
-	my $final_epoch= $next_date->clone->subtract(%$duration)->epoch;
-	my $next_epoch=  $next_date->subtract(%$interval)->epoch;
-	my $radius=      ($epoch - $next_epoch) * $reach_factor;
+	my $search_idx=  0;
+	my $next_epoch=  $next_date->add(%$interval)->epoch;
+	my $radius=      -($epoch - $next_epoch) * $reach_factor;
 	my $drift=       0; # only used for auto_sync
 	my $rule_key;
 	
-	# Iterating backward accross date intervals and also input points, which is awkward.
 	# The epoch variables track the current date interval, and the _idx
 	# variables track our position in the list.
-	while ($epoch > $final_epoch && $search_idx >= 0) {
+	while ($epoch-abs($drift) <= $reference_date->epoch && $search_idx < @$list) {
 		my $best;
-		for (my $i= $search_idx; $i >= 0 and $list->[$i][0] > $epoch+$drift-$radius; --$i) {
-			if ($list->[$i][0] <= $epoch+$drift+$radius
+		for (my $i= $search_idx; $i < @$list and $list->[$i][0] < $epoch+$drift+$radius; ++$i) {
+			if ($list->[$i][0] >= $epoch+$drift-$radius
 				and (!defined $best or abs($list->[$i][0] - ($epoch+$drift)) < abs($list->[$best][0] - ($epoch+$drift)))
 			) {
 				$best= $i;
 			}
 			# update the start_idx for next interval iteration
-			$search_idx= $i-1 if $list->[$i][0] > $next_epoch+$drift+$radius;
+			$search_idx= $i+1 if $list->[$i][0] < $next_epoch-$radius*2;
 		}
 		if (defined $best) {
 			$list->[$best][2]= 1; # mark as a keeper
 			# If option enabled, drift toward the time we found, so that gap between next
 			# is closer to $interval
-			$drift += ($list->[$best][0] - ($epoch+$drift))/2
+			$drift= $list->[$best][0] - $epoch
 				if $self->auto_sync;
 		}
 		if ($trace) {
@@ -221,7 +219,7 @@ sub _mark_for_retention {
 			push @{$trace->{$rule_key}{interval}}, { epoch => $epoch, best => $best, drift => $drift };
 		}
 		$epoch= $next_epoch;
-		$next_epoch= $next_date->subtract(%$interval)->epoch;
+		$next_epoch= $next_date->add(%$interval)->epoch;
 		
 		# if auto_sync enabled, cause drift to decay back toward 0
 		$drift= int($drift * 7/8)
