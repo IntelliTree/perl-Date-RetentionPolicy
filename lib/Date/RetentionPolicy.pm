@@ -5,6 +5,8 @@ use Scalar::Util 'looks_like_number';
 use DateTime;
 use DateTime::Format::Flexible;
 
+# ABSTRACT: Prune a list of dates down to the ones you want to keep
+
 =head1 SYNOPSIS
 
   my $rp= Date::RetentionPolicy->new(
@@ -25,8 +27,8 @@ use DateTime::Format::Flexible;
 =head1 DESCRIPTION
 
 Often when making backups of a thing, you want to have more frequent snapshots
-for a near time window, but don't need that frequency once they reach a certain
-age, and want to delete some of them to save space.
+for recent dates, but don't need that frequency further back in time, and want
+to delete some of the older ones to save space.
 
 The problem of deciding which snapshots to delete is non-trivial because
 backups often don't complete on a timely schedule (despite being started on
@@ -226,6 +228,17 @@ sub _mark_for_retention {
 			if $drift;
 	}
 }
+
+=head2 visualize
+
+  print $rp->visualize( \@list );
+
+This method takes a list of timestamps, sorts and marks them for retention,
+and then returns printable text showing the retention intervals and which
+increment it decided to keep.  The text is simple ascii-art, and requires
+a monospace font to display correctly.
+
+=cut
 
 sub visualize {
 	my ($self, $list)= @_;
